@@ -1,6 +1,8 @@
 All code was generated using Claude.
 
 This game is rogue-like heavily based on The Binding of Isaac. The player moves room to room fighting enemies and collecting items. Once the player defeats the boss of the level, they can move on to a newly generated level.
+
+[Actual Binding of Isaac gameplay video](https://www.youtube.com/watch?v=BTGX7IYJpGM)
 ## Features
 * A diverse set of pre-generated rooms, which are used to create randomly generated levels at runtime.
 * Obstacles including walls, spike traps, and gaps
