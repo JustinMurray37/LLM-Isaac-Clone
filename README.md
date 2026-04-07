@@ -16,3 +16,5 @@ Fire: Arrow keys
 Place bomb: E
 
 Reset: Hold R
+
+![Screenshot of gameplay showing the player fighting a group of enemies](/screenshot.png)
