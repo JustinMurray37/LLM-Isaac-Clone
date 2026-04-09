@@ -1,10 +1,12 @@
 import math
+import random
 import pygame
 from constants import TILE_SIZE
 from tile import TileType
+from pickup import PICKUPS
 
 EXPLOSION_RADIUS   = 64
-_EXPLOSION_DAMAGE  = 4
+_EXPLOSION_DAMAGE  = 6
 _FUSE_DURATION     = 3.0
 _EXPLOSION_DURATION = 0.45
 _BOMB_RADIUS       = 9
@@ -69,12 +71,16 @@ class PlacedBomb:
                     # Never destroy border walls (they frame the room)
                     if c == 0 or c == room.cols - 1 or r == 0 or r == room.rows - 1:
                         continue
-                    if room.grid[r][c] != TileType.WALL:
+                    tile = room.grid[r][c]
+                    if tile not in (TileType.WALL, TileType.CRACKED_WALL):
                         continue
                     tile_cx = c * TILE_SIZE + TILE_SIZE // 2
                     tile_cy = r * TILE_SIZE + TILE_SIZE // 2
                     if math.hypot(tile_cx - self.x, tile_cy - self.y) <= EXPLOSION_RADIUS:
                         room.set_tile(c, r, TileType.FLOOR)
+                        if tile == TileType.CRACKED_WALL:
+                            pickup_cls = random.choice(list(PICKUPS.values()))
+                            room.pickups.append(pickup_cls(tile_cx, tile_cy))
 
     def draw(self, surface):
         cx, cy = round(self.x), round(self.y)

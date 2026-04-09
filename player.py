@@ -26,6 +26,7 @@ class Player:
         self.fire_timer = 0.0
         self._flash_timer = 0.0
         self._spike_timer = 0.0
+        self._facing_right = True
 
     def update(self, dt, keys, room, open_sides=frozenset()):
         dx, dy = 0.0, 0.0
@@ -100,29 +101,72 @@ class Player:
         if self._flash_timer > 0 and int(self._flash_timer / _FLASH_RATE) % 2 == 0:
             return
 
-        cx, cy = round(self.x), round(self.y)
+        if self.vx > 0.5:
+            self._facing_right = True
+        elif self.vx < -0.5:
+            self._facing_right = False
 
-        _BODY_COLOR = COLOR_PLAYER          # (100, 200, 100)
-        _BODY_SHADE = (70,  145,  70)       # darker inner shadow on body
-        _HEAD_COLOR = (125, 220, 125)       # slightly brighter head
-        _HIGHLIGHT  = (220, 255, 220)       # specular dot
+        SIZE = 52
+        tmp  = pygame.Surface((SIZE, SIZE), pygame.SRCALPHA)
+        cx   = SIZE // 2
+        cy   = SIZE // 2 + 4     # shift down so head doesn't clip the top
 
-        # ---- Body: top half of an oval, flat edge facing down ----
-        bw, bh   = 22, 20
-        oval_top = cy + 1                   # top of the full oval rect
-        body_rect = pygame.Rect(cx - bw // 2, oval_top, bw, bh)
+        _SKIN    = (255, 205, 172)
+        _SHADOW  = (218, 162, 128)
+        _ROSY    = (248, 148, 138)
+        _HAIR    = (172, 132, 64)
+        _DIAPER  = (210, 210, 232)
+        _DIAP_SH = (172, 172, 200)
+        _EYE     = (68,  42,  30)
+        _MOUTH   = (190, 72,  68)
+        _TEAR    = (148, 200, 255)
 
-        old_clip = surface.get_clip()
-        # Clip so only the upper half of the ellipse is visible
-        surface.set_clip(pygame.Rect(cx - bw // 2, oval_top, bw, bh // 2 + 1))
-        # Subtle inner shadow: slightly smaller, offset ellipse drawn first
-        pygame.draw.ellipse(surface, _BODY_SHADE,
-                            pygame.Rect(cx - bw // 2 + 2, oval_top + 3, bw - 3, bh - 2))
-        pygame.draw.ellipse(surface, _BODY_COLOR, body_rect)
-        surface.set_clip(old_clip)
+        # ---- diaper / body ----
+        pygame.draw.ellipse(tmp, _DIAP_SH, (cx - 9,  cy + 7, 18, 11))
+        pygame.draw.ellipse(tmp, _DIAPER,  (cx - 9,  cy + 5, 18, 11))
+        # diaper waistband
+        pygame.draw.line(tmp, _DIAP_SH, (cx - 8, cy + 5), (cx + 8, cy + 5), 1)
 
-        # ---- Head: sphere with specular highlight ----
-        head_r  = 8
-        head_cy = oval_top - head_r + 2     # sits just above body dome
-        pygame.draw.circle(surface, _HEAD_COLOR, (cx, head_cy), head_r)
-        pygame.draw.circle(surface, _HIGHLIGHT,  (cx - 2, head_cy - 2), max(1, head_r // 3))
+        # ---- stubby arms ----
+        pygame.draw.line(tmp, _SKIN,   (cx - 7, cy + 4), (cx - 13, cy + 1), 4)
+        pygame.draw.circle(tmp, _SKIN, (cx - 13, cy + 1), 3)
+        pygame.draw.line(tmp, _SKIN,   (cx + 7, cy + 4), (cx + 13, cy + 1), 4)
+        pygame.draw.circle(tmp, _SKIN, (cx + 13, cy + 1), 3)
+
+        # ---- large round head ----
+        hr   = 13
+        hcy  = cy - 8
+        pygame.draw.circle(tmp, _SHADOW, (cx + 1, hcy + 1), hr)
+        pygame.draw.circle(tmp, _SKIN,   (cx,     hcy),     hr)
+
+        # ---- hair tuft ----
+        pygame.draw.arc(tmp, _HAIR, (cx - 6, hcy - hr - 1,  8, 8),
+                        math.radians(0), math.radians(180), 2)
+        pygame.draw.arc(tmp, _HAIR, (cx,     hcy - hr + 1,  7, 7),
+                        math.radians(10), math.radians(170), 2)
+
+        # ---- rosy cheeks ----
+        pygame.draw.circle(tmp, _ROSY, (cx - 7, hcy + 4), 4)
+        pygame.draw.circle(tmp, _ROSY, (cx + 7, hcy + 4), 4)
+
+        # ---- scrunched crying eyes (top-arc = ∩ pressed shut) ----
+        eye_y = hcy - 1
+        for ex in (cx - 5, cx + 4):
+            pygame.draw.arc(tmp, _EYE, (ex, eye_y, 6, 4),
+                            math.radians(0), math.radians(180), 2)
+
+        # ---- tears ----
+        pygame.draw.ellipse(tmp, _TEAR, (cx - 7, hcy + 2, 3, 5))
+        pygame.draw.ellipse(tmp, _TEAR, (cx + 4, hcy + 2, 3, 5))
+
+        # ---- open crying mouth ----
+        pygame.draw.ellipse(tmp, _MOUTH,        (cx - 4, hcy + 5, 8, 6))
+        pygame.draw.ellipse(tmp, (220, 90, 85), (cx - 3, hcy + 5, 6, 3))  # upper lip line
+
+        # ---- specular highlight on forehead ----
+        pygame.draw.circle(tmp, (255, 240, 228), (cx - 4, hcy - 5), 3)
+
+        if not self._facing_right:
+            tmp = pygame.transform.flip(tmp, True, False)
+
+        surface.blit(tmp, (round(self.x) - SIZE // 2, round(self.y) - SIZE // 2))

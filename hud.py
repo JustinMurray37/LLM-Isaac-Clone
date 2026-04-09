@@ -24,7 +24,7 @@ _HP_EMPTY     = (70,  25,  25)
 
 _NOTIF_DURATION = 1.5
 _NOTIF_FADE     = 0.4
-_RESTART_HOLD   = 3.0
+_RESTART_HOLD   = 2.0
 _BAR_WIDTH      = 200
 _BAR_HEIGHT     = 12
 
@@ -196,11 +196,32 @@ def draw_stats(surface, stats, panel):
         y += _LINE_H
 
 
+def _draw_skull_icon(surface, rx, ry, rw, rh):
+    cx, cy = rx + rw // 2, ry + rh // 2
+    r = max(1, min(rw, rh) // 2 - 1)
+    pygame.draw.circle(surface, (215, 215, 215), (cx, cy), r)
+    if r >= 2:
+        pygame.draw.circle(surface, (22, 22, 34), (cx - 1, cy), 1)
+        pygame.draw.circle(surface, (22, 22, 34), (cx + 1, cy), 1)
+
+
+def _draw_crown_icon(surface, rx, ry, rw, rh):
+    _GOLD = (220, 178, 30)
+    cx, cy = rx + rw // 2, ry + rh // 2
+    half = max(2, rw // 3)
+    pygame.draw.line(surface, _GOLD, (cx - half, cy + 1), (cx + half, cy + 1), 1)
+    pygame.draw.line(surface, _GOLD, (cx - half, cy + 1), (cx - half, cy - 2), 1)
+    pygame.draw.line(surface, _GOLD, (cx,        cy + 1), (cx,        cy - 3), 1)
+    pygame.draw.line(surface, _GOLD, (cx + half, cy + 1), (cx + half, cy - 2), 1)
+
+
 def draw_minimap(surface, area, rooms_grid, visited, current):
     """
-    Render explored rooms as small rectangles inside `area`.
-    Only rooms in `visited` are shown.  The current room is highlighted green.
-    Corridors between visited rooms are drawn as thin lines; locked ones in gold.
+    Render rooms on the minimap.
+    - Visited rooms shown normally; current room highlighted green.
+    - Rooms adjacent to visited rooms are revealed in a dim colour.
+    - Boss rooms show a skull icon; treasure rooms show a crown icon.
+    - Corridors between any two visible rooms are drawn; locked ones in gold.
     """
     if not rooms_grid or not visited:
         return
@@ -211,7 +232,6 @@ def draw_minimap(surface, area, rooms_grid, visited, current):
     gw = max(xs) - min_x + 1
     gh = max(ys) - min_y + 1
 
-    # Scale room+gap cells to fit the area
     ROOM_W = max(6,  min(14, (area.width  - 4) // gw - 2))
     ROOM_H = max(5,  min(10, (area.height - 4) // gh - 2))
     GAP_X  = max(2,  min(6,  (area.width  - 4) // gw - ROOM_W))
@@ -224,27 +244,38 @@ def draw_minimap(surface, area, rooms_grid, visited, current):
     ox = area.left + (area.width  - total_w) // 2
     oy = area.top  + (area.height - total_h) // 2
 
-    _MAP_BG    = (22, 22, 34)
-    _ROOM_COL  = (60, 60, 82)
-    _CURR_COL  = (80, 200, 100)
-    _CORR_COL  = (48, 48, 66)
-    _LOCK_COL  = (170, 130, 20)
+    _MAP_BG     = (22,  22,  34)
+    _ROOM_COL   = (60,  60,  82)
+    _REVEAL_COL = (35,  35,  54)
+    _CURR_COL   = (80,  200, 100)
+    _CORR_COL   = (48,  48,  66)
+    _LOCK_COL   = (170, 130, 20)
 
     pygame.draw.rect(surface, _MAP_BG, area, border_radius=4)
     pygame.draw.rect(surface, _PANEL_BORDER, area, 1, border_radius=4)
 
+    # Compute which grid positions are visible
+    visited_pos  = {pos for pos, room in rooms_grid.items() if room in visited}
+    revealed_pos = set()
+    for vx, vy in visited_pos:
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            npos = (vx + dx, vy + dy)
+            if npos in rooms_grid and npos not in visited_pos:
+                revealed_pos.add(npos)
+    visible_pos = visited_pos | revealed_pos
+
+    # --- corridors (drawn under rooms) ---
     for (gx, gy), room in rooms_grid.items():
-        if room not in visited:
+        if (gx, gy) not in visible_pos:
             continue
         rx = ox + (gx - min_x) * STEP_X
         ry = oy + (gy - min_y) * STEP_Y
-
-        # Corridors to right / down neighbours (draw once per pair)
         for d, (dx, dy) in (("right", (1, 0)), ("down", (0, 1))):
-            nbr = rooms_grid.get((gx + dx, gy + dy))
-            if nbr is None or nbr not in visited:
+            npos = (gx + dx, gy + dy)
+            if npos not in visible_pos:
                 continue
-            if d not in room.connections or room.connections[d] is not nbr:
+            nbr = rooms_grid.get(npos)
+            if nbr is None or d not in room.connections or room.connections[d] is not nbr:
                 continue
             locked = d in room.locked_connections
             col = _LOCK_COL if locked else _CORR_COL
@@ -257,8 +288,26 @@ def draw_minimap(surface, area, rooms_grid, visited, current):
                                  (rx + ROOM_W // 2, ry + ROOM_H),
                                  (rx + ROOM_W // 2, ry + STEP_Y))
 
-        color = _CURR_COL if room is current else _ROOM_COL
+    # --- rooms and icons ---
+    for (gx, gy), room in rooms_grid.items():
+        pos = (gx, gy)
+        if pos not in visible_pos:
+            continue
+        rx = ox + (gx - min_x) * STEP_X
+        ry = oy + (gy - min_y) * STEP_Y
+
+        if room is current:
+            color = _CURR_COL
+        elif pos in visited_pos:
+            color = _ROOM_COL
+        else:
+            color = _REVEAL_COL
         pygame.draw.rect(surface, color, (rx, ry, ROOM_W, ROOM_H))
+
+        if room.is_boss_room:
+            _draw_skull_icon(surface, rx, ry, ROOM_W, ROOM_H)
+        elif room.is_treasure_room:
+            _draw_crown_icon(surface, rx, ry, ROOM_W, ROOM_H)
 
 
 def draw_hud(surface, stats, panel,

@@ -12,7 +12,7 @@ from tile import TileType
 from rooms import generate_dungeon
 from items import ITEMS
 from hud import draw_hud, draw_notification, draw_game_over, draw_boss_healthbar, _NOTIF_DURATION, _RESTART_HOLD
-from enemies import Boss
+from enemies import Boss, Slimer
 from ladder import Ladder
 from blood import add_stain
 import enemy as enemy_module
@@ -76,6 +76,7 @@ def _place_at_entry(player, room, from_direction):
 
 def _set_champion_chance(level):
     enemy_module.CHAMPION_CHANCE = min(0.10, (level*2) / 100)
+    enemy_module.CURRENT_LEVEL   = level
 
 
 def build_game():
@@ -100,11 +101,15 @@ def build_game():
 
 def main():
     pygame.init()
-    screen = pygame.display.set_mode((HUD_WIDTH + SCREEN_WIDTH, SCREEN_HEIGHT))
+    NATIVE_W  = HUD_WIDTH + SCREEN_WIDTH   # 960
+    NATIVE_H  = SCREEN_HEIGHT              # 576
+    display   = pygame.display.set_mode((NATIVE_W, NATIVE_H), pygame.RESIZABLE)
     pygame.display.set_caption("Roguelike")
     clock     = pygame.time.Clock()
+    canvas    = pygame.Surface((NATIVE_W, NATIVE_H))   # fixed-res render target
     game_surf = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
     hud_panel = pygame.Rect(0, 0, HUD_WIDTH, SCREEN_HEIGHT)
+    screen    = canvas   # all existing draw calls use this name unchanged
 
     state = build_game()
     game_over = False
@@ -207,6 +212,7 @@ def main():
             for enemy in room.enemies:
                 fired = enemy.update(dt, room, player)
                 enemy_projectiles.extend(fired)
+            enemy_module.resolve_enemy_collisions(room.enemies, room)
 
             for proj in enemy_projectiles:
                 proj.update(dt, room)
@@ -287,6 +293,12 @@ def main():
                 chest.update(dt, room)
                 chest.check_interaction(player, room)
 
+            # --- Slime puddles ---
+            for puddle in room.slime_puddles:
+                puddle.update(dt)
+                puddle.check_damage(player)
+            room.slime_puddles = [p for p in room.slime_puddles if not p.expired]
+
             # --- Pickups ---
             for pickup in room.pickups:
                 pickup.update(dt, room)
@@ -320,7 +332,7 @@ def main():
             proj.draw(game_surf)
         for proj in state["enemy_projectiles"]:
             proj.draw(game_surf)
-        boss = next((e for e in room.enemies if isinstance(e, Boss)), None)
+        boss = next((e for e in room.enemies if isinstance(e, (Boss, Slimer))), None)
         if boss:
             draw_boss_healthbar(game_surf, boss, SCREEN_WIDTH)
         screen.blit(game_surf, (HUD_WIDTH, 0))
@@ -338,6 +350,13 @@ def main():
             draw_game_over(screen, HUD_WIDTH, SCREEN_WIDTH, SCREEN_HEIGHT,
                            restart_hold / _RESTART_HOLD)
 
+        # Scale canvas to display, letterboxing to preserve aspect ratio
+        dw, dh = display.get_size()
+        scale  = min(dw / NATIVE_W, dh / NATIVE_H)
+        sw, sh = int(NATIVE_W * scale), int(NATIVE_H * scale)
+        display.fill((0, 0, 0))
+        display.blit(pygame.transform.smoothscale(canvas, (sw, sh)),
+                     ((dw - sw) // 2, (dh - sh) // 2))
         pygame.display.flip()
 
 

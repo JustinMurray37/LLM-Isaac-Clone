@@ -122,6 +122,39 @@ class Heart(Pickup):
         ])
 
 
+class HalfHeart(Pickup):
+    """Heals the player for 1 HP. Cannot be collected at full health."""
+
+    color  = (220, 60, 80)
+    radius = 6
+    name   = "Half Heart"
+
+    def can_collect(self, player):
+        return player.stats.health < player.stats.max_health
+
+    def apply(self, player):
+        player.stats.health = min(player.stats.health + 1, player.stats.max_health)
+
+    def draw(self, surface):
+        cx, cy = round(self.x), round(self.y)
+        r = self.radius
+        # Left lobe only (right half clipped)
+        old_clip = surface.get_clip()
+        surface.set_clip(pygame.Rect(cx - r - 1, cy - r - 1, r + 2, r * 3))
+        pygame.draw.circle(surface, self.color, (cx - r // 2, cy - r // 3), r // 2 + 1)
+        pygame.draw.circle(surface, self.color, (cx + r // 2, cy - r // 3), r // 2 + 1)
+        pygame.draw.polygon(surface, self.color, [
+            (cx - r, cy - r // 3),
+            (cx + r, cy - r // 3),
+            (cx,     cy + r),
+        ])
+        surface.set_clip(old_clip)
+        # Vertical dividing line down the centre
+        pygame.draw.line(surface, (255, 120, 140),
+                         (cx, cy - r // 3 - r // 2),
+                         (cx, cy + r - 1), 1)
+
+
 class Key(Pickup):
     """Gives the player one key."""
 
@@ -175,7 +208,8 @@ class Bomb(Pickup):
 
 
 PICKUPS = {
-    "heart": Heart,
-    "key":   Key,
-    "bomb":  Bomb,
+    "heart":      Heart,
+    "half_heart": HalfHeart,
+    "key":        Key,
+    "bomb":       Bomb,
 }

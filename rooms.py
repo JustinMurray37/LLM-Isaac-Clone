@@ -4,10 +4,19 @@ from tile import TileType
 from items import ITEMS
 from enemies import ENEMIES
 from constants import TILE_SIZE, TESTING_MODE
+import enemy as enemy_module
 
 # Pixel centre of tile (col, row)
 def _tc(col, row):
     return col * TILE_SIZE + TILE_SIZE // 2, row * TILE_SIZE + TILE_SIZE // 2
+
+_BASE_ENEMIES  = ["zombie", "ranged_zombie", "bat", "leaker"]
+_LEVEL2_ENEMIES = ["flaming_zombie"]
+
+def _spawn(col, row):
+    """Spawn a random regular enemy at tile (col, row)."""
+    pool = _BASE_ENEMIES + (_LEVEL2_ENEMIES if enemy_module.CURRENT_LEVEL >= 2 else [])
+    return ENEMIES[random.choice(pool)](*_tc(col, row))
 
 # Cardinal directions and grid offsets used by the generator
 _OFFSET = {"up": (0, -1), "down": (0, 1), "left": (-1, 0), "right": (1, 0)}
@@ -72,17 +81,19 @@ def make_start_room():
 
 
 def make_boss_room():
-    """Open room with the boss enemy at the centre."""
+    """Open room with a randomly chosen boss enemy at the centre."""
     room = Room()
     room.is_boss_room = True
     b = room.bounds
-    room.enemies = [ENEMIES["boss"](b.centerx, b.centery)]
+    boss_key = random.choice(["boss", "slimer"])
+    room.enemies = [ENEMIES[boss_key](b.centerx, b.centery)]
     return room
 
 
 def make_treasure_room():
     """Empty room with a single random stat item at the centre."""
     room = Room()
+    room.is_treasure_room = True
     b = room.bounds
     room.items = [random.choice(list(ITEMS.values()))(b.centerx, b.centery)]
     return room
@@ -138,11 +149,11 @@ def make_pillars_room():
         room.set_tile(c, 11, TileType.SPIKE_TIMED)
 
     room.enemies = [
-        ENEMIES["zombie"]       (*_tc( 3,  9)),   # left middle
-        ENEMIES["zombie"]       (*_tc(21,  9)),   # right middle
-        ENEMIES["ranged_zombie"](*_tc(12,  9)),   # centre
-        ENEMIES["bat"]          (*_tc( 8,  3)),   # top-left open area
-        ENEMIES["bat"]          (*_tc(18, 14)),   # bottom-right open area
+        _spawn( 3,  9),   # left middle
+        _spawn(21,  9),   # right middle
+        _spawn(12,  9),   # centre
+        _spawn( 8,  3),   # top-left open area
+        _spawn(18, 14),   # bottom-right open area
     ]
     return room
 
@@ -187,11 +198,11 @@ def make_gauntlet_room():
         room.set_tile(c, 13, TileType.SPIKE_TIMED)
 
     room.enemies = [
-        ENEMIES["zombie"]       (*_tc( 5,  9)),   # left side
-        ENEMIES["zombie"]       (*_tc(19,  9)),   # right side
-        ENEMIES["ranged_zombie"](*_tc(20,  7)),   # top-right open area
-        ENEMIES["ranged_zombie"](*_tc( 4, 14)),   # bottom-left (outside gap)
-        ENEMIES["bat"]          (*_tc(12,  9)),   # centre
+        _spawn( 5,  9),   # left side
+        _spawn(19,  9),   # right side
+        _spawn(20,  7),   # top-right open area
+        _spawn( 4, 14),   # bottom-left (outside gap)
+        _spawn(12,  9),   # centre
     ]
     return room
 
@@ -239,11 +250,11 @@ def make_crypt_room():
             room.set_tile(c, r, TileType.GAP)
 
     room.enemies = [
-        ENEMIES["ranged_zombie"](*_tc( 9,  4)),   # top, left of bars
-        ENEMIES["ranged_zombie"](*_tc(16, 13)),   # bottom, right of bars
-        ENEMIES["zombie"]       (*_tc(12,  9)),   # centre corridor
-        ENEMIES["bat"]          (*_tc(22,  9)),   # right corridor
-        ENEMIES["bat"]          (*_tc( 3,  9)),   # left corridor
+        _spawn( 9,  4),   # top, left of bars
+        _spawn(16, 13),   # bottom, right of bars
+        _spawn(12,  9),   # centre corridor
+        _spawn(22,  9),   # right corridor
+        _spawn( 3,  9),   # left corridor
     ]
     return room
 
@@ -293,12 +304,12 @@ def make_arena_room():
         room.set_tile(c, 12, TileType.SPIKE_TIMED)
 
     room.enemies = [
-        ENEMIES["zombie"]       (*_tc( 7,  9)),   # left centre
-        ENEMIES["zombie"]       (*_tc(17,  9)),   # right centre
-        ENEMIES["zombie"]       (*_tc(12,  4)),   # top centre
-        ENEMIES["ranged_zombie"](*_tc(12, 14)),   # bottom centre
-        ENEMIES["ranged_zombie"](*_tc( 6,  9)),   # left corridor
-        ENEMIES["bat"]          (*_tc(12,  9)),   # centre
+        _spawn( 7,  9),   # left centre
+        _spawn(17,  9),   # right centre
+        _spawn(12,  4),   # top centre
+        _spawn(12, 14),   # bottom centre
+        _spawn( 6,  9),   # left corridor
+        _spawn(12,  9),   # centre
     ]
     return room
 
@@ -343,47 +354,76 @@ def generate_dungeon():
                 for d, (dx, dy) in _OFFSET.items()
                 if (pos[0]+dx, pos[1]+dy) not in grid]
 
+    def _nbr_count(pos):
+        """How many occupied grid cells are adjacent to pos."""
+        return sum(1 for dx, dy in _OFFSET.values()
+                   if (pos[0]+dx, pos[1]+dy) in grid)
+
+    def _free_isolated(pos):
+        """Free positions adjacent to pos whose only occupied neighbor is pos itself."""
+        result = []
+        for d, (dx, dy) in _OFFSET.items():
+            npos = (pos[0]+dx, pos[1]+dy)
+            if npos not in grid and _nbr_count(npos) == 1:
+                result.append((d, npos))
+        return result
+
     _POOL = [make_pillars_room, make_gauntlet_room,
              make_crypt_room,   make_arena_room]
 
     _place(make_start_room(), (0, 0))
 
     # --- Grow combat rooms ---
+    # Collect all (ppos, d, npos) placements across the whole frontier,
+    # weighted inversely by how many neighbors the target cell would have.
+    # Spots with fewer neighbours are strongly preferred.
     while len(order) < target - 1:
-        frontier = [(r, p) for r, p in order if _free(p)]
-        if not frontier:
+        options = []
+        weights = []
+        for _, p in order:
+            for d, npos in _free(p):
+                options.append((p, d, npos))
+                weights.append(1.0 / _nbr_count(npos))
+        if not options:
             break
-        parent, ppos = random.choice(frontier)
-        d, npos      = random.choice(_free(ppos))
-
+        (ppos, d, npos), = random.choices(options, weights=weights, k=1)
         new_room = random.choice(_POOL)()
         _flip_room(new_room, random.random() < 0.5, random.random() < 0.5)
         _place(new_room, npos)
 
-    # Collect dead ends excluding the start room
-    dead_ends = [(r, p) for r, p in order
-                 if len(r.connections) == 1 and r is not order[0][0] and _free(p)]
-    candidates = dead_ends or [(r, p) for r, p in order
-                                if r is not order[0][0] and _free(p)]
-
-    # --- Place boss room at one dead end ---
-    if candidates:
-        random.shuffle(candidates)
-        parent, ppos = candidates.pop()
-        d, bpos = random.choice(_free(ppos))
+    # --- Place boss room — always exactly 1 neighbor ---
+    # Prefer dead-end parents; fall back to any room, but always require
+    # an isolated free cell (only 1 occupied neighbor = the parent).
+    boss_options = [
+        (p, d, npos)
+        for r, p in order
+        if r is not order[0][0] and len(r.connections) == 1
+        for d, npos in _free_isolated(p)
+    ]
+    if not boss_options:
+        boss_options = [
+            (p, d, npos)
+            for r, p in order if r is not order[0][0]
+            for d, npos in _free_isolated(p)
+        ]
+    if boss_options:
+        ppos, d, bpos = random.choice(boss_options)
         _place(make_boss_room(), bpos)
 
-    # Refresh dead-end list after boss placement
+    # --- Place treasure — always exactly 1 neighbor ---
+    # Candidates must have an isolated free cell available so the treasure
+    # room only ever touches one other room on the grid.
     dead_ends = [(r, p) for r, p in order
                  if len(r.connections) == 1 and r is not order[0][0]
-                 and not r.is_boss_room and _free(p)]
+                 and not r.is_boss_room and _free_isolated(p)]
     candidates = dead_ends or [(r, p) for r, p in order
-                                if r is not order[0][0] and not r.is_boss_room and _free(p)]
-
-    # --- Place treasure at a different dead end (locked) ---
+                                if r is not order[0][0]
+                                and not r.is_boss_room and _free_isolated(p)]
     if candidates:
         parent, ppos = random.choice(candidates)
-        d, tpos      = random.choice(_free(ppos))
-        parent.connect_locked(d, make_treasure_room())
+        d, tpos = random.choice(_free_isolated(ppos))
+        treasure = make_treasure_room()
+        parent.connect_locked(d, treasure)
+        grid[tpos] = treasure   # add to grid so it appears on the minimap
 
     return order[0][0], grid   # start room, {(x,y): Room} grid

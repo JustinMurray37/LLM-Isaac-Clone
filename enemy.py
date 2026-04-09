@@ -9,11 +9,39 @@ from pathfinding import line_of_sight, find_path
 _PATH_RECOMPUTE_INTERVAL = 0.5    # seconds between A* calls
 
 CHAMPION_CHANCE = 0.02   # updated by main.py each level; 2% + 1% per level, max 10%
+CURRENT_LEVEL   = 1      # updated by main.py; scales enemy health and projectile speed
 _KNOCKBACK_SPEED         = 120.0  # px/s impulse applied on projectile hit
 _KNOCKBACK_DECAY         = 500.0  # px/s² — how fast knockback fades (same for all enemies)
 
-_COLOR = (200, 80, 80)
-_COLOR_DEAD = (80, 30, 30)
+
+
+def resolve_enemy_collisions(enemies, room):
+    """Push overlapping enemies apart. Only enemies of the same flight type interact."""
+    alive = [e for e in enemies if e.alive]
+    for i in range(len(alive)):
+        a = alive[i]
+        for j in range(i + 1, len(alive)):
+            b = alive[j]
+            if a.stats.flight != b.stats.flight:
+                continue
+            min_dist = a.stats.size / 2 + b.stats.size / 2
+            dx = a.x - b.x
+            dy = a.y - b.y
+            dist = math.hypot(dx, dy)
+            if dist >= min_dist:
+                continue
+            if dist > 0:
+                nx, ny = dx / dist, dy / dist
+            else:
+                nx, ny = 1.0, 0.0
+            push = (min_dist - dist) / 2
+            a.x += nx * push
+            a.y += ny * push
+            b.x -= nx * push
+            b.y -= ny * push
+            if not a.stats.flight:
+                a.x, a.y = room.resolve_position(a.x, a.y, a.stats.size / 2)
+                b.x, b.y = room.resolve_position(b.x, b.y, b.stats.size / 2)
 
 
 def _move_toward(current, target, step):
@@ -42,6 +70,13 @@ class Enemy:
         self._path_timer = 0.0
         self._kb_vx = 0.0   # knockback velocity, decays independently of AI movement
         self._kb_vy = 0.0
+        # Scale health and projectile speed by 1.1 per level above 1
+        _scale = 1.1 ** (CURRENT_LEVEL - 1)
+        self.stats.health          *= _scale
+        self.stats.max_health      *= _scale
+        self.stats.projectile_speed *= _scale
+
+        self._hit_flash = 0
         self.contact_damage = 1
         self.champion = self._champion_eligible and random.random() < CHAMPION_CHANCE
         if self.champion:
@@ -59,6 +94,7 @@ class Enemy:
 
     def take_damage(self, amount):
         self.stats.health -= amount
+        self._hit_flash = 4
 
     def apply_knockback(self, dx, dy):
         """Set a fixed-speed knockback impulse in direction (dx, dy).
@@ -170,12 +206,14 @@ class Enemy:
     # ------------------------------------------------------------------
     # Override in subclasses
 
-    def update(self, dt, room, player):
+    def update(self, dt, _room, _player):
         """
         Called every frame. Override to implement AI behaviour.
         Use _move_toward_point / _stop / _shoot_toward / _apply_velocity.
         Return a list of any Projectiles fired this frame (may be empty).
         """
+        if self._hit_flash > 0:
+            self._hit_flash -= 1
         if self.fire_timer > 0:
             self.fire_timer -= dt
 
@@ -214,7 +252,17 @@ class Enemy:
         pygame.draw.circle(surface, _HEAD_COLOR, (cx, head_cy), head_r)
         pygame.draw.circle(surface, _HIGHLIGHT,  (cx - 2, head_cy - 2), max(1, head_r // 3))
 
+        self._draw_hit_flash(surface)
         self._draw_champion_overlay(surface)
+
+    def _draw_hit_flash(self, surface):
+        if not self._hit_flash:
+            return
+        cx, cy = round(self.x), round(self.y)
+        r = self.stats.size // 2
+        flash = pygame.Surface((r * 2, r * 2), pygame.SRCALPHA)
+        pygame.draw.circle(flash, (255, 50, 50, 180), (r, r), r)
+        surface.blit(flash, (cx - r, cy - r))
 
     def _draw_champion_overlay(self, surface):
         if not self.champion:

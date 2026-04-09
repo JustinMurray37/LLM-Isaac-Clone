@@ -45,9 +45,11 @@ class Room:
         self.chests       = []
         self.placed_bombs = []
         self._reward_given = False
-        self.is_boss_room  = False
+        self.is_boss_room      = False
+        self.is_treasure_room  = False
         self.ladder        = None
         self.blood_stains  = []
+        self.slime_puddles = []
         # Default layout: wall border with floor interior
         self.grid = [
             [
@@ -94,6 +96,11 @@ class Room:
         return self.grid[row][col]
 
     def set_tile(self, col, row, tile_type):
+        if (tile_type == TileType.WALL
+                and col != 0 and col != self.cols - 1
+                and row != 0 and row != self.rows - 1
+                and random.random() < 0.001):
+            tile_type = TileType.CRACKED_WALL
         self.grid[row][col] = tile_type
 
     def tile_at_pixel(self, x, y):
@@ -179,15 +186,15 @@ class Room:
     # Collision
 
     def is_solid(self, col, row):
-        """True for tiles that block movement (WALL and GAP). SPIKE is walkable."""
-        return self.grid[row][col] in (TileType.WALL, TileType.GAP)
+        """True for tiles that block movement (WALL, CRACKED_WALL, GAP). SPIKE is walkable."""
+        return self.grid[row][col] in (TileType.WALL, TileType.CRACKED_WALL, TileType.GAP)
 
     def is_wall_at_pixel(self, x, y):
-        """True if the pixel sits on a WALL tile (used to stop projectiles)."""
+        """True if the pixel sits on a WALL or CRACKED_WALL tile (stops projectiles)."""
         col = int(x) // TILE_SIZE
         row = int(y) // TILE_SIZE
         if 0 <= col < self.cols and 0 <= row < self.rows:
-            return self.grid[row][col] == TileType.WALL
+            return self.grid[row][col] in (TileType.WALL, TileType.CRACKED_WALL)
         return True
 
     def resolve_position(self, x, y, half_size):
@@ -253,6 +260,8 @@ class Room:
                     self._draw_floor_tile(surface, c, r)
                 elif tile == TileType.WALL:
                     self._draw_wall_tile(surface, c, r)
+                elif tile == TileType.CRACKED_WALL:
+                    self._draw_cracked_wall_tile(surface, c, r)
                 elif tile == TileType.GAP:
                     self._draw_gap_tile(surface, c, r)
 
@@ -263,6 +272,8 @@ class Room:
 
         for stain in self.blood_stains:
             stain.draw(surface)
+        for puddle in self.slime_puddles:
+            puddle.draw(surface)
         if self.ladder:
             self.ladder.draw(surface)
         if self.enemies:
@@ -304,28 +315,38 @@ class Room:
                 x1 = tx + s - 1 - (col * 3) % 4
                 pygame.draw.line(surface, _GRAIN, (x0, gy), (x1, gy))
 
+    def _draw_barrier_tile(self, surface, tx, ty):
+        """Draw one barrier tile: a wall tile darkened to show the door is sealed."""
+        s = TILE_SIZE
+        p, b = 2, 5
+        x, y = tx + p, ty + p
+        w, h = s - p * 2, s - p * 2
+        # Dark stone face (about 70 % brightness of normal wall)
+        pygame.draw.rect(surface, _sc((62, 58, 54)), (x, y, w, h))
+        pygame.draw.polygon(surface, _sc((88, 84, 78)),  [(x,y),(x+w,y),(x+w-b,y+b),(x+b,y+b)])
+        pygame.draw.polygon(surface, _sc((74, 70, 65)),  [(x,y),(x+b,y+b),(x+b,y+h-b),(x,y+h)])
+        pygame.draw.polygon(surface, _sc((30, 28, 25)),  [(x,y+h),(x+w,y+h),(x+w-b,y+h-b),(x+b,y+h-b)])
+        pygame.draw.polygon(surface, _sc((38, 36, 33)),  [(x+w,y),(x+w,y+h),(x+w-b,y+h-b),(x+w-b,y+b)])
+        # Subtle crack
+        pygame.draw.line(surface, (42, 39, 36), (tx + 10, ty + 12), (tx + 15, ty + 19), 1)
+
     def _draw_door_barriers(self, surface):
-        """Draw a gray bar across every connected doorway while enemies are alive."""
-        _BARRIER_COLOR = (70, 70, 80)
+        """Draw darkened wall tiles across every connected doorway while enemies are alive."""
         door_r = self._door_rows()
         door_c = self._door_cols()
         for direction in self.connections:
             if direction == "right":
-                x = (self.cols - 1) * TILE_SIZE
-                y = door_r[0] * TILE_SIZE
-                pygame.draw.rect(surface, _BARRIER_COLOR, (x, y, TILE_SIZE, len(door_r) * TILE_SIZE))
+                for r in door_r:
+                    self._draw_barrier_tile(surface, (self.cols - 1) * TILE_SIZE, r * TILE_SIZE)
             elif direction == "left":
-                x = 0
-                y = door_r[0] * TILE_SIZE
-                pygame.draw.rect(surface, _BARRIER_COLOR, (x, y, TILE_SIZE, len(door_r) * TILE_SIZE))
+                for r in door_r:
+                    self._draw_barrier_tile(surface, 0, r * TILE_SIZE)
             elif direction == "down":
-                x = door_c[0] * TILE_SIZE
-                y = (self.rows - 1) * TILE_SIZE
-                pygame.draw.rect(surface, _BARRIER_COLOR, (x, y, len(door_c) * TILE_SIZE, TILE_SIZE))
+                for c in door_c:
+                    self._draw_barrier_tile(surface, c * TILE_SIZE, (self.rows - 1) * TILE_SIZE)
             elif direction == "up":
-                x = door_c[0] * TILE_SIZE
-                y = 0
-                pygame.draw.rect(surface, _BARRIER_COLOR, (x, y, len(door_c) * TILE_SIZE, TILE_SIZE))
+                for c in door_c:
+                    self._draw_barrier_tile(surface, c * TILE_SIZE, 0)
 
     def _draw_gap_tile(self, surface, col, row):
         """Draw bumpy rocky protrusions along edges that border a non-gap tile."""
@@ -403,6 +424,37 @@ class Room:
                          (tx + 10, ty + 12), (tx + 16, ty + 20), 1)
         pygame.draw.line(surface, (65, 62, 57),
                          (tx + 20, ty +  8), (tx + 22, ty + 14), 1)
+
+    def _draw_cracked_wall_tile(self, surface, col, row):
+        """Like _draw_wall_tile but with heavier, more numerous cracks and a lighter face."""
+        tx = col * TILE_SIZE
+        ty = row * TILE_SIZE
+        s  = TILE_SIZE
+        p  = 2
+        b  = 5
+
+        x, y = tx + p, ty + p
+        w, h = s - p * 2, s - p * 2
+
+        # Slightly lighter/damaged stone face
+        pygame.draw.rect(surface, _sc((78, 74, 68)), (x, y, w, h))
+
+        pygame.draw.polygon(surface, _sc((115, 110, 103)), [
+            (x, y), (x+w, y), (x+w-b, y+b), (x+b, y+b)])
+        pygame.draw.polygon(surface, _sc((95, 91, 85)), [
+            (x, y), (x+b, y+b), (x+b, y+h-b), (x, y+h)])
+        pygame.draw.polygon(surface, _sc((40, 37, 34)), [
+            (x, y+h), (x+w, y+h), (x+w-b, y+h-b), (x+b, y+h-b)])
+        pygame.draw.polygon(surface, _sc((50, 47, 43)), [
+            (x+w, y), (x+w, y+h), (x+w-b, y+h-b), (x+w-b, y+b)])
+
+        # Heavy branching cracks
+        _C = (42, 38, 34)
+        pygame.draw.line(surface, _C, (tx +  8, ty +  4), (tx + 14, ty + 14), 2)
+        pygame.draw.line(surface, _C, (tx + 14, ty + 14), (tx + 10, ty + 22), 1)
+        pygame.draw.line(surface, _C, (tx + 14, ty + 14), (tx + 20, ty + 20), 1)
+        pygame.draw.line(surface, _C, (tx + 18, ty +  6), (tx + 22, ty + 16), 2)
+        pygame.draw.line(surface, _C, (tx +  6, ty + 20), (tx + 12, ty + 26), 1)
 
     def _draw_locked_barriers(self, surface):
         """Draw a golden barred gate across each locked doorway."""
