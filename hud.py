@@ -32,29 +32,29 @@ _BAR_HEIGHT     = 12
 def _get_font():
     global _font
     if _font is None:
-        _font = pygame.font.SysFont("monospace", 13)
+        _font = pygame.font.SysFont("monospace", 16)
     return _font
 
 
 def _get_level_font():
     global _level_font
     if _level_font is None:
-        _level_font = pygame.font.SysFont("monospace", 13, bold=True)
+        _level_font = pygame.font.SysFont("monospace", 16, bold=True)
     return _level_font
 
 
 def _get_notif_font():
     global _notif_font
     if _notif_font is None:
-        _notif_font = pygame.font.SysFont("monospace", 22, bold=True)
+        _notif_font = pygame.font.SysFont("monospace", 27, bold=True)
     return _notif_font
 
 
 def _get_gameover_fonts():
     global _gameover_font, _gameover_sub_font
     if _gameover_font is None:
-        _gameover_font     = pygame.font.SysFont("monospace", 52, bold=True)
-        _gameover_sub_font = pygame.font.SysFont("monospace", 18)
+        _gameover_font     = pygame.font.SysFont("monospace", 62, bold=True)
+        _gameover_sub_font = pygame.font.SysFont("monospace", 22)
     return _gameover_font, _gameover_sub_font
 
 

@@ -1,7 +1,10 @@
+import asyncio
 import sys
 import math
 import random
 import pygame
+
+_WASM = sys.platform == "emscripten"
 from constants import SCREEN_WIDTH, SCREEN_HEIGHT, HUD_WIDTH, FPS, TILE_SIZE
 from room import Room, _OPPOSITE
 from player import Player
@@ -99,11 +102,51 @@ def build_game():
     )
 
 
-def main():
+def _setup_wasm_scaling(native_w, native_h):
+    """Inject JS that CSS-scales the pygbag canvas to fill the browser window."""
+    from js import document
+    script = document.createElement("script")
+    script.textContent = f"""
+    (function() {{
+        var GW = {native_w}, GH = {native_h};
+        function resize() {{
+            var cvs = document.querySelector('canvas');
+            if (!cvs) {{ setTimeout(resize, 50); return; }}
+            var s = Math.min(window.innerWidth / GW, window.innerHeight / GH);
+            cvs.style.position        = 'absolute';
+            cvs.style.width           = (GW * s) + 'px';
+            cvs.style.height          = (GH * s) + 'px';
+            cvs.style.left            = ((window.innerWidth  - GW * s) / 2) + 'px';
+            cvs.style.top             = ((window.innerHeight - GH * s) / 2) + 'px';
+            cvs.style.imageRendering  = 'auto';
+            document.body.style.margin     = '0';
+            document.body.style.background = '#000';
+            document.body.style.overflow   = 'hidden';
+        }}
+        resize();
+        window.addEventListener('resize', resize);
+
+        // Auto-dismiss pygbag's "click to start" loading screen
+        function tryStart() {{
+            var cvs = document.querySelector('canvas');
+            if (!cvs) {{ setTimeout(tryStart, 100); return; }}
+            cvs.dispatchEvent(new MouseEvent('click', {{bubbles: true}}));
+        }}
+        setTimeout(tryStart, 500);
+    }})();
+    """
+    document.body.appendChild(script)
+
+
+async def main():
     pygame.init()
     NATIVE_W  = HUD_WIDTH + SCREEN_WIDTH   # 960
     NATIVE_H  = SCREEN_HEIGHT              # 576
-    display   = pygame.display.set_mode((NATIVE_W, NATIVE_H), pygame.RESIZABLE)
+    if _WASM:
+        display = pygame.display.set_mode((NATIVE_W, NATIVE_H))
+        _setup_wasm_scaling(NATIVE_W, NATIVE_H)
+    else:
+        display = pygame.display.set_mode((NATIVE_W, NATIVE_H), pygame.RESIZABLE)
     pygame.display.set_caption("Roguelike")
     clock     = pygame.time.Clock()
     canvas    = pygame.Surface((NATIVE_W, NATIVE_H))   # fixed-res render target
@@ -114,18 +157,19 @@ def main():
     state = build_game()
     game_over = False
     restart_hold = 0.0
+    running = True
 
-    while True:
+    while running:
         dt = clock.tick(FPS) / 1000.0
 
         # --- Events ---
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                pygame.quit()
-                sys.exit()
-            if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
-                pygame.quit()
-                sys.exit()
+                running = False
+            if not _WASM and event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+                running = False
+            if not _WASM and event.type == pygame.VIDEORESIZE:
+                display = pygame.display.set_mode(event.size, pygame.RESIZABLE)
             if event.type == pygame.KEYDOWN and event.key == pygame.K_e:
                 if not game_over:
                     _p = state["player"]
@@ -354,11 +398,16 @@ def main():
         dw, dh = display.get_size()
         scale  = min(dw / NATIVE_W, dh / NATIVE_H)
         sw, sh = int(NATIVE_W * scale), int(NATIVE_H * scale)
-        display.fill((0, 0, 0))
-        display.blit(pygame.transform.smoothscale(canvas, (sw, sh)),
-                     ((dw - sw) // 2, (dh - sh) // 2))
+        if sw == NATIVE_W and sh == NATIVE_H:
+            display.blit(canvas, (0, 0))
+        else:
+            display.fill((0, 0, 0))
+            display.blit(pygame.transform.scale(canvas, (sw, sh)),
+                         ((dw - sw) // 2, (dh - sh) // 2))
         pygame.display.flip()
+        await asyncio.sleep(0)
+
+    pygame.quit()
 
 
-if __name__ == "__main__":
-    main()
+asyncio.run(main())

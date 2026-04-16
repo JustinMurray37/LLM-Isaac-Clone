@@ -7,7 +7,7 @@ _LABEL_PROXIMITY = 100  # pixels from item centre to show the name
 def _get_label_font():
     global _label_font
     if _label_font is None:
-        _label_font = pygame.font.SysFont("monospace", 11)
+        _label_font = pygame.font.SysFont("monospace", 13)
     return _label_font
 
 
