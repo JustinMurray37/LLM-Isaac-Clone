@@ -66,6 +66,7 @@ def _flip_room(room, flip_x, flip_y):
 def make_start_room():
     """Empty starting room — no obstacles or enemies."""
     room = Room()
+    room.is_start_room = True
     if TESTING_MODE:
         b = room.bounds
         all_items = list(ITEMS.values())

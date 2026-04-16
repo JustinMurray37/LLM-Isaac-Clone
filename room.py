@@ -3,7 +3,14 @@ import pygame
 from constants import SCREEN_WIDTH, SCREEN_HEIGHT, TILE_SIZE, COLOR_BG
 from tile import TileType, TILE_COLORS
 
-_color_shift = (0, 0, 0)  # per-level RGB offset applied to all floor and wall colors
+_color_shift  = (0, 0, 0)
+_controls_font = None
+
+def _get_controls_font():
+    global _controls_font
+    if _controls_font is None:
+        _controls_font = pygame.font.SysFont("monospace", 15)
+    return _controls_font  # per-level RGB offset applied to all floor and wall colors
 
 
 def randomize_level_colors():
@@ -45,6 +52,7 @@ class Room:
         self.chests       = []
         self.placed_bombs = []
         self._reward_given = False
+        self.is_start_room     = False
         self.is_boss_room      = False
         self.is_treasure_room  = False
         self.ladder        = None
@@ -281,6 +289,21 @@ class Room:
         if self.locked_connections:
             self._draw_locked_barriers(surface)
         self._draw_boss_doorway_markers(surface)
+        if self.is_start_room:
+            self._draw_controls(surface)
+
+    def _draw_controls(self, surface):
+        lines  = ["Move: WASD", "Fire: Arrow Keys", "Bomb: E", "Restart: Hold R"]
+        font   = _get_controls_font()
+        color  = (180, 175, 160)
+        lh     = font.get_linesize() + 2
+        total  = len(lines) * lh
+        b      = self.bounds
+        y      = b.bottom - b.height // 4 - total // 2
+        for line in lines:
+            surf = font.render(line, True, color)
+            surface.blit(surf, (b.centerx - surf.get_width() // 2, y))
+            y += lh
 
     def _draw_floor_tile(self, surface, col, row):
         """Draw a horizontal wood-plank texture on a floor tile."""
