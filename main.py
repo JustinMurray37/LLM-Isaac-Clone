@@ -126,13 +126,6 @@ def _setup_wasm_scaling(native_w, native_h):
         resize();
         window.addEventListener('resize', resize);
 
-        // Auto-dismiss pygbag's "click to start" loading screen
-        function tryStart() {{
-            var cvs = document.querySelector('canvas');
-            if (!cvs) {{ setTimeout(tryStart, 100); return; }}
-            cvs.dispatchEvent(new MouseEvent('click', {{bubbles: true}}));
-        }}
-        setTimeout(tryStart, 500);
     }})();
     """
     document.body.appendChild(script)
